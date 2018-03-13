@@ -25,7 +25,9 @@ MPI_HOME ?= $(HOME)/usr/local/openmpi/3.0.0
 
 NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
 CXXEXTRA = -std=c++11 -m64 #-DNDEBUG #-D__NVVP__ # -DLAGHOS_DEBUG -D__NVVP__
-
+CUB_INC=-I$(CUB_DIR)
+LIBMP_INC ?= -I$(HOME)/eagostini/peersync/include
+LIBMP_LIB ?= -L$(HOME)/eagostini/peersync/lib -lmp -lgdsync -lgdrapi -lcuda -libverbs
 
 ###################
 # LAGHOS_HELP_MSG #
