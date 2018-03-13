@@ -137,8 +137,8 @@ namespace mfem {
     gettimeofday(&st, NULL);
     for(int i=0;i<nb_step;i++){
 #ifdef __NVCC__
-      //NB: Remove with Async?
-      cudaDeviceSynchronize(); // used with nvvp
+      if(!gdacomm::Get().isAsync())
+        cudaDeviceSynchronize(); // used with nvvp
 #endif
       push(SkyBlue);
       Pm1AP.Mult(x, y);
