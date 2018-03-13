@@ -9,6 +9,7 @@
 // terms of the GNU Lesser General Public License (as published by the Free
 // Software Foundation) version 2.1 dated February 1999.
 #include "../raja.hpp"
+#include "../../gdacomm/gdacomm.hpp"
 
 namespace mfem {
   
@@ -102,7 +103,10 @@ namespace mfem {
 #ifndef __NVCC__
     std::copy(d_xdata+j-m, d_xdata+Width(), d_ydata+j);
 #else
-    rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+    if(gdacomm::Get().isAsync())
+        rmemcpy::rDtoDAsync(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+    else
+        rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
 #endif
     pop();
     
@@ -161,7 +165,11 @@ namespace mfem {
 #ifndef __NVCC__
     std::copy(d_xdata+j, d_xdata+Height(), d_ydata+j-m);
 #else
-    rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+    if(gdacomm::Get().isAsync())
+        rmemcpy::rDtoDAsync(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+    else
+        rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+
 #endif
     pop();
     push(d_ReduceEnd,Coral);
@@ -169,6 +177,8 @@ namespace mfem {
     gc->d_ReduceEnd<double>(d_ydata, out_layout, GroupCommunicator::Sum);
     pop();
     pop();
+
+    //ele: cudasync?
   }
 
   // ***************************************************************************

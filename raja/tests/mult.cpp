@@ -17,6 +17,7 @@
 #include "../../laghos_solver.hpp"
 #include <sys/time.h>
 #include <unistd.h>
+#include "../../gdacomm/gdacomm.hpp"
 
 namespace mfem {
 
@@ -62,12 +63,20 @@ namespace mfem {
     void Mult(const RajaVector &x, RajaVector &y) const  {
       push(Id=,DarkCyan);
       //usleep(100);
+      //Pin+Async memory
+      if(gdacomm::Get().isAsync())
+        y.AsyncSetAlloc(true);
+      
       y=x;
       pop();
     }
     void MultTranspose(const RajaVector &x, RajaVector &y) const {
       push(Id=T,DarkCyan);
       //usleep(100);
+      //Pin+Async memory
+      if(gdacomm::Get().isAsync())
+        y.AsyncSetAlloc(true);
+
       y=x;
       pop();
     }
@@ -128,6 +137,7 @@ namespace mfem {
     gettimeofday(&st, NULL);
     for(int i=0;i<nb_step;i++){
 #ifdef __NVCC__
+      //NB: Remove with Async?
       cudaDeviceSynchronize(); // used with nvvp
 #endif
       push(SkyBlue);
@@ -142,10 +152,19 @@ namespace mfem {
       Pm1AP.MultTranspose(x, y);
       pop();
     }
+
+    if(gdacomm::Get().isAsync())
+    {
+      gdacomm::Get().FlushAll(true);
+      cudaDeviceSynchronize();
+    }
+
     gettimeofday(&et, NULL);
     const float alltime = ((et.tv_sec-st.tv_sec)*1.0e3+(et.tv_usec - st.tv_usec)/1.0e3);
     if (rconfig::Get().Root())
       printf("\033[32m[laghos] Elapsed time = %f ms/step\33[m\n", alltime/nb_step);
+
+    gdacomm::Get().Finalize();
     return true;
   }
 

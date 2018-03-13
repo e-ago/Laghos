@@ -41,6 +41,7 @@ namespace mfem {
 #endif
     // *************************************************************************
     bool cuda=false;
+    int gdasync=0;
     bool dcg=false;
     bool uvm=false;
     bool share=false;
@@ -63,7 +64,7 @@ namespace mfem {
     }
     // *************************************************************************
     void Setup(const int,const int,
-               const bool cuda, const bool dcg,
+               const bool cuda, const int gdasync, const bool dcg,
                const bool uvm, const bool aware,
                const bool share, const bool occa, const bool hcpo,
                const bool sync, const bool dot, const int rs_levels);

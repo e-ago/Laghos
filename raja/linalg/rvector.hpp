@@ -23,6 +23,7 @@ class RajaVector : public rmalloc<double>{
   size_t size = 0;
   double* data = NULL;
   bool own = true;
+  bool locked_mem=false;
  public:
   RajaVector(): size(0),data(NULL),own(true) {}
   RajaVector(const RajaVector&);
@@ -55,6 +56,10 @@ class RajaVector : public rmalloc<double>{
   RajaVector* GetRange(const size_t, const size_t) const;
   void SetSubVector(const RajaArray<int> &, const double, const int);
   double Min() const;
+  //GPUDirect Async
+  double* AsyncAlloc(const size_t, bool locked_mem);
+  void AsyncSetSize(const size_t,const void* =NULL);
+  void AsyncSetAlloc(bool locked_mem);
   ~RajaVector();
 };
 

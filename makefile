@@ -20,11 +20,15 @@
 CUB_DIR  ?= ./cub
 CUDA_DIR ?= /usr/local/cuda
 MFEM_DIR ?= $(HOME)/home/mfem/mfem-raja
-RAJA_DIR ?= $(HOME)/usr/local/raja/last
+#RAJA_DIR ?= $(HOME)/usr/local/raja/last
 MPI_HOME ?= $(HOME)/usr/local/openmpi/3.0.0
 
 NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
-CXXEXTRA = -std=c++11 -m64 -DNDEBUG #-D__NVVP__ # -DLAGHOS_DEBUG -D__NVVP__
+CXXEXTRA = -std=c++11 -m64 -DNDEBUG # -DLAGHOS_DEBUG -D__NVVP__
+
+CUB_INC=-I$(CUB_DIR)
+LIBMP_INC ?= -I$(HOME)/eagostini/peersync/include
+LIBMP_LIB ?= -L$(HOME)/eagostini/peersync/lib -lmp -lgdsync -lgdrapi -lcuda -libverbs
 
 
 ###################
@@ -65,6 +69,7 @@ pwd = $(patsubst %/,%,$(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 home = $(HOME)
 raja = $(pwd)/raja
 kernels = $(raja)/kernels
+gdacomm = $(pwd)/gdacomm
 
 # Default installation location
 PREFIX = ./bin
@@ -226,8 +231,8 @@ CUB_INC = -I$(CUB_DIR)
 ################
 # LAGHOS FLAGS #
 ################
-LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) $(CUB_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC) $(DBG_INC)
-LAGHOS_LIBS = $(ASAN_LIB) $(MFEM_LIBS) -fopenmp $(RAJA_LIBS) $(CUDA_LIBS) -ldl $(DBG_LIB) $(BKT_LIB)
+LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) $(CUB_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC) $(DBG_INC) $(LIBMP_INC)
+LAGHOS_LIBS = $(ASAN_LIB) $(MFEM_LIBS) -fopenmp $(RAJA_LIBS) $(CUDA_LIBS) -ldl $(DBG_LIB) $(BKT_LIB) $(LIBMP_LIB)
 ifeq ($(LAGHOS_DEBUG),YES)
    LAGHOS_FLAGS += -DLAGHOS_DEBUG
 endif
@@ -260,12 +265,16 @@ RAJA_FILES += $(wildcard $(raja)/general/*.cpp)
 RAJA_FILES += $(wildcard $(raja)/linalg/*.cpp)
 RAJA_FILES += $(wildcard $(raja)/tests/*.cpp)
 
+#Enable GPUDirect Async
+GDACOMM_FILES = $(wildcard $(gdacomm)/*.cpp)
+
 ################
 # OBJECT FILES #
 ################
 OBJECT_FILES  = $(SOURCE_FILES:.cpp=.o)
 OBJECT_FILES += $(KERNEL_FILES:.cpp=.o)
 OBJECT_FILES += $(RAJA_FILES:.cpp=.o)
+OBJECT_FILES += $(GDACOMM_FILES:.cpp=.o)
 
 ##############
 # CUDA FILES #
@@ -363,7 +372,9 @@ clean cln: clean-build clean-exec
 clean-build:
 	rm -rf laghos laghos-nvcc laghos-mpicxx *.o *~ *.dSYM \
 	raja/*/*.o raja/*/*.lo \
-	raja/kernels/*.o raja/kernels/*/*.o raja/kernels/*/*.lo 
+	raja/kernels/*.o raja/kernels/*/*.o raja/kernels/*/*.lo \
+	gdacomm/*.o
+	
 clean-exec:
 	rm -rf ./results
 

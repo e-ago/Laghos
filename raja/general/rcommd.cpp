@@ -9,6 +9,7 @@
 // terms of the GNU Lesser General Public License (as published by the Free
 // Software Foundation) version 2.1 dated February 1999.
 #include "../raja.hpp"
+#include "../../gdacomm/gdacomm.hpp"
 
 namespace mfem {
 
@@ -146,6 +147,9 @@ namespace mfem {
     push(alloc,Moccasin);
     group_buf.SetSize(group_buf_size*sizeof(T));
     T *buf = (T *)group_buf.GetData();
+    if (!rconfig::Get().Aware() && gdacomm::Get().isAsync()) {
+        gdacomm::Get().pinMemory(buf, group_buf_size*sizeof(T));
+    }
     if (!d_group_buf){
       push(alloc,Purple);
       d_group_buf = rmalloc<T>::operator new(group_buf_size);
@@ -170,13 +174,16 @@ namespace mfem {
           buf += d_buf - d_buf_ini;
         }
         if (!rconfig::Get().Aware()){
-          push(BcastBegin:DtoH,Red);
-          rmemcpy::rDtoH(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
-          pop();
+            push(BcastBegin:DtoH,Red);
+            if(gdacomm::Get().isAsync())
+                rmemcpy::rDtoHAsync(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
+            else
+                rmemcpy::rDtoH(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
+            pop();
         }
         
         // make sure the device has finished
-        if (rconfig::Get().Aware()){
+        if (rconfig::Get().Aware() && !gdacomm::Get().isAsync()){
           push(sync,Lime);
           cudaStreamSynchronize(0);//*rconfig::Get().Stream());
           pop();
@@ -184,14 +191,38 @@ namespace mfem {
 
         push(MPI_Isend,Orange);
         if (rconfig::Get().Aware())
-          MPI_Isend(d_buf_start,
+            gdacomm::Get().iSend(
+                    d_buf_start,
+                    buf - buf_start,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    40822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(d_buf_start), group_buf_size*sizeof(T))
+            );
+#if 0
+            MPI_Isend(d_buf_start,
                     buf - buf_start,
                     MPITypeMap<T>::mpi_type,
                     gtopo.GetNeighborRank(nbr),
                     40822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
+          
         else
+            gdacomm::Get().iSend(
+                    buf_start,
+                    buf - buf_start,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    40822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(buf_start), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Isend(buf_start,
                     buf - buf_start,
                     MPITypeMap<T>::mpi_type,
@@ -199,6 +230,7 @@ namespace mfem {
                     40822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
         pop();
         request_marker[request_counter] = -1; // mark as send request
         request_counter++;
@@ -215,6 +247,17 @@ namespace mfem {
         }
         push(MPI_Irecv,Orange);
         if (rconfig::Get().Aware())
+            gdacomm::Get().iRecv(
+                    d_buf,
+                    recv_size,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    40822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(d_buf), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Irecv(d_buf,
                     recv_size,
                     MPITypeMap<T>::mpi_type,
@@ -222,7 +265,19 @@ namespace mfem {
                     40822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
         else
+            gdacomm::Get().iRecv(
+                    buf,
+                    recv_size,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    40822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(buf), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Irecv(buf,
                     recv_size,
                     MPITypeMap<T>::mpi_type,
@@ -230,6 +285,7 @@ namespace mfem {
                     40822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
         pop();
         request_marker[request_counter] = nbr;
         request_counter++;
@@ -258,35 +314,79 @@ namespace mfem {
     assert(comm_lock == 1);
     // copy the received data from the buffer to d_ldata, as it arrives
     int idx;
-    push(MPI_Waitany,Orange);   
-    while (MPI_Waitany(num_requests, requests, &idx, MPI_STATUS_IGNORE),
-           idx != MPI_UNDEFINED)
-    {
-      pop();
-      int nbr = request_marker[idx];
-      if (nbr == -1) { continue; } // skip send requests
-
-      const int num_recv_groups = nbr_recv_groups.RowSize(nbr);
-      if (num_recv_groups > 0)
-      {
-        const int *grp_list = nbr_recv_groups.GetRow(nbr);
-        int recv_size = 0;
-        for (int i = 0; i < num_recv_groups; i++)
+    push(MPI_Waitany,Orange);
+    if(gdacomm::Get().isMPI())
+    { 
+        while (MPI_Waitany(num_requests, requests, &idx, MPI_STATUS_IGNORE),
+               idx != MPI_UNDEFINED)
         {
-          recv_size += group_ldof.RowSize(grp_list[i]);
-        }
-        const T *buf = (T*)group_buf.GetData() + buf_offsets[nbr];
-        const T *d_buf = (T*)d_group_buf + buf_offsets[nbr];
-        if (!rconfig::Get().Aware()){
-          push(BcastEnd:HtoD,Red);
-          rmemcpy::rHtoD((void*)d_buf,buf,recv_size*sizeof(T));
           pop();
+          int nbr = request_marker[idx];
+          if (nbr == -1) { continue; } // skip send requests
+
+          const int num_recv_groups = nbr_recv_groups.RowSize(nbr);
+          if (num_recv_groups > 0)
+          {
+            const int *grp_list = nbr_recv_groups.GetRow(nbr);
+            int recv_size = 0;
+            for (int i = 0; i < num_recv_groups; i++)
+            {
+              recv_size += group_ldof.RowSize(grp_list[i]);
+            }
+            const T *buf = (T*)group_buf.GetData() + buf_offsets[nbr];
+            const T *d_buf = (T*)d_group_buf + buf_offsets[nbr];
+            if (!rconfig::Get().Aware()){
+              push(BcastEnd:HtoD,Red);
+              rmemcpy::rHtoD((void*)d_buf,buf,recv_size*sizeof(T));
+              pop();
+            }
+            for (int i = 0; i < num_recv_groups; i++)
+            {
+              d_buf = d_CopyGroupFromBuffer(d_buf, d_ldata, grp_list[i], layout);
+            }
+          }
         }
-        for (int i = 0; i < num_recv_groups; i++)
+    }
+    else
+    {
+        gdacomm::Get().AsyncWaitAllReady();
+        gdacomm::Get().AsyncWaitAllSend();
+        gdacomm::Get().AsyncWaitAllRecv();
+        push(ProgressAll,Blue);
+        gdacomm::Get().AsyncProgress();
+        pop();
+
+        for (int nbr = 1; nbr < nbr_send_groups.Size(); nbr++)
         {
-          d_buf = d_CopyGroupFromBuffer(d_buf, d_ldata, grp_list[i], layout);
+            const int num_recv_groups = nbr_recv_groups.RowSize(nbr);
+            if (num_recv_groups > 0)
+            {
+                const int *grp_list = nbr_recv_groups.GetRow(nbr);
+                int recv_size = 0;
+                for (int i = 0; i < num_recv_groups; i++)
+                {
+                  recv_size += group_ldof.RowSize(grp_list[i]);
+                }
+                //Should be aready pinned in Begin!
+                const T *buf = (T*)group_buf.GetData() + buf_offsets[nbr];
+                const T *d_buf = (T*)d_group_buf + buf_offsets[nbr];
+                if (!rconfig::Get().Aware()){
+                    push(BcastEnd:HtoD,Red);
+                    if(gdacomm::Get().isAsync())
+                        rmemcpy::rHtoDAsync((void*)d_buf,buf,recv_size*sizeof(T));
+                      else
+                        rmemcpy::rHtoD((void*)d_buf,buf,recv_size*sizeof(T));
+                    pop();
+                }
+                for (int i = 0; i < num_recv_groups; i++)
+                {
+                    d_buf = d_CopyGroupFromBuffer(d_buf, d_ldata, grp_list[i], layout);
+                }
+          }
         }
-      }
+        push(FlushAll,Red);
+        gdacomm::Get().FlushAll(false);
+        pop();
     }
     comm_lock = 0; // 0 - no lock
     num_requests = 0;
@@ -308,6 +408,9 @@ namespace mfem {
     int request_counter = 0;
     group_buf.SetSize(group_buf_size*sizeof(T));
     T *buf = (T *)group_buf.GetData();
+    if (!rconfig::Get().Aware() && gdacomm::Get().isAsync()) {
+        gdacomm::Get().pinMemory(buf, group_buf_size*sizeof(T));
+    }
     if (!d_group_buf)
       d_group_buf = rmalloc<T>::operator new(group_buf_size);
     T *d_buf = (T*)d_group_buf;
@@ -325,18 +428,32 @@ namespace mfem {
         }
         dbg("\033[33;1m[%d-d_ReduceBegin] MPI_Isend",rnk);
         if (!rconfig::Get().Aware()){
-          push(ReduceBegin:DtoH,Red);
-          rmemcpy::rDtoH(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
-          pop();
+            push(ReduceBegin:DtoH,Red);
+            if(gdacomm::Get().isAsync())
+                rmemcpy::rDtoHAsync(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
+            else
+                rmemcpy::rDtoH(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
+            pop();
         }
         // make sure the device has finished
-        if (rconfig::Get().Aware()){
+        if (rconfig::Get().Aware() && !gdacomm::Get().isAsync()){
           push(sync,Lime);
           cudaStreamSynchronize(0);//*rconfig::Get().Stream());
           pop();
         }
         push(MPI_Isend,Orange);
         if (rconfig::Get().Aware())
+            gdacomm::Get().iSend(
+                    d_buf_start,
+                    buf - buf_start,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    43822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(d_buf_start), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Isend(d_buf_start,
                     buf - buf_start,
                     MPITypeMap<T>::mpi_type,
@@ -344,7 +461,19 @@ namespace mfem {
                     43822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
-        else
+#endif
+            else
+                gdacomm::Get().iSend(
+                    buf_start,
+                    buf - buf_start,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    43822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(buf_start), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Isend(buf_start,
                     buf - buf_start,
                     MPITypeMap<T>::mpi_type,
@@ -352,6 +481,8 @@ namespace mfem {
                     43822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
+
         pop();        
         request_marker[request_counter] = -1; // mark as send request
         request_counter++;
@@ -370,6 +501,17 @@ namespace mfem {
         dbg("\033[33;1m[%d-d_ReduceBegin] MPI_Irecv",rnk);
         push(MPI_Irecv,Orange);
         if (rconfig::Get().Aware())
+            gdacomm::Get().iRecv(
+                    d_buf,
+                    recv_size,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    43822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(d_buf), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Irecv(d_buf,
                     recv_size,
                     MPITypeMap<T>::mpi_type,
@@ -377,7 +519,19 @@ namespace mfem {
                     43822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
         else
+            gdacomm::Get().iRecv(
+                    buf,
+                    recv_size,
+                    MPITypeMap<T>::mpi_type,
+                    gtopo.GetNeighborRank(nbr),
+                    gtopo.GetComm(), 
+                    &requests[request_counter],
+                    43822,
+                    gdacomm::Get().getMemRegion(reinterpret_cast<std::uintptr_t>(buf), group_buf_size*sizeof(T))
+            );
+#if 0
           MPI_Irecv(buf,
                     recv_size,
                     MPITypeMap<T>::mpi_type,
@@ -385,6 +539,7 @@ namespace mfem {
                     43822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
+#endif
         pop();
         request_marker[request_counter] = nbr;
         request_counter++;
@@ -414,7 +569,18 @@ namespace mfem {
     assert(comm_lock == 2);
     
     push(MPI_Waitall,Orange);
-    MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
+    if(gdacomm::Get().isAsync())
+    {
+        gdacomm::Get().AsyncWaitAllReady();
+        gdacomm::Get().AsyncWaitAllSend();
+        gdacomm::Get().AsyncWaitAllRecv();
+        push(ProgressAll,Blue);
+        gdacomm::Get().AsyncProgress();
+        pop();
+    }
+    else
+        gdacomm::Get().WaitAll(requests, num_requests);
+
     pop();
     for (int nbr = 1; nbr < nbr_send_groups.Size(); nbr++)
     {
@@ -430,9 +596,12 @@ namespace mfem {
         assert(d_group_buf);
         const T *d_buf = (T*)d_group_buf + buf_offsets[nbr];
         if (!rconfig::Get().Aware()){
-          push(ReduceEnd:HtoD,Red);
-          rmemcpy::rHtoD((void*)d_buf,buf,recv_size*sizeof(T));
-          pop();
+            push(ReduceEnd:HtoD,Red);
+            if(gdacomm::Get().isAsync())
+                rmemcpy::rHtoDAsync((void*)d_buf,buf,recv_size*sizeof(T));
+            else
+                rmemcpy::rHtoD((void*)d_buf,buf,recv_size*sizeof(T));
+            pop();
         }
         for (int i = 0; i < num_recv_groups; i++)
         {
@@ -443,6 +612,16 @@ namespace mfem {
     comm_lock = 0; // 0 - no lock
     num_requests = 0;
     dbg("\033[33;1m[%d-d_ReduceEnd] end",rnk);
+    pop();
+
+    push(FlushAll,Red);
+    if(gdacomm::Get().isAsync())
+    {
+        //ToDo: remove from here? Put it at the end of the mult loop?
+        //or flush totally overlap some kind of kernel?
+        gdacomm::Get().FlushAll(false);
+        //gdacomm::Get().Log("After FlushAll");
+    }
     pop();
   }
 

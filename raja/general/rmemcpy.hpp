@@ -18,13 +18,17 @@
 
 namespace mfem {
 	
-  // ***************************************************************************
-  struct rmemcpy{
-    static void* rHtoH(void*, const void*, std::size_t);
-    static void* rHtoD(void*, const void*, std::size_t);
-    static void* rDtoH(void*, const void*, std::size_t);
-    static void* rDtoD(void*, const void*, std::size_t);
-  };
+// ***************************************************************************
+struct rmemcpy{
+	static void* rHtoH(void*, const void*, std::size_t);
+	static void* rHtoD(void*, const void*, std::size_t);
+	static void* rDtoH(void*, const void*, std::size_t);
+	static void* rDtoD(void*, const void*, std::size_t);
+	//GPUDirect Async
+	static void* rHtoDAsync(void*, const void*, std::size_t);
+	static void* rDtoHAsync(void*, const void*, std::size_t);
+	static void* rDtoDAsync(void*, const void*, std::size_t);
+};
   
 } // mfem
 

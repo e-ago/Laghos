@@ -16,6 +16,7 @@
 #include "../raja.hpp"
 #include <mpi-ext.h>
 #include <unistd.h>
+#include "../../gdacomm/gdacomm.hpp"
 
 namespace mfem {
 
@@ -55,6 +56,7 @@ namespace mfem {
   void rconfig::Setup(const int _mpi_rank,
                       const int _mpi_size,
                       const bool _cuda,
+                      const int _gdasync,
                       const bool _dcg,
                       const bool _uvm,
                       const bool _aware,
@@ -89,6 +91,7 @@ namespace mfem {
     cuCheck(cudaGetDeviceCount(&gpu_count));
 #endif
     cuda=_cuda;
+    gdasync=_gdasync;
     dcg=_dcg; // CG on device
     uvm=_uvm;
     aware=_aware;
@@ -143,9 +146,14 @@ namespace mfem {
     cuCtxCreate(&cuContext, CU_CTX_SCHED_AUTO, cuDevice);
     hStream=new CUstream;
     cuStreamCreate(hStream, CU_STREAM_DEFAULT);
+    
+    // Init gdasync comm
+    gdacomm::Get().Init(mpi_rank, mpi_size, device, gdasync, hStream);
+
 #endif
     if (_dot){
       dotTest(rs_levels);
+      gdacomm::Get().Finalize();
       MPI_Finalize();
       exit(0);
     }

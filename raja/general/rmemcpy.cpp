@@ -68,4 +68,46 @@ namespace mfem {
     return dest;
   }
 
+  // *************************************************************************
+  void* rmemcpy::rHtoDAsync(void *dest, const void *src, std::size_t count){
+    dbg(">\033[m");
+    if (count==0) return dest;
+    assert(src); assert(dest);
+    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,count);
+#ifdef __NVCC__
+    if (!rconfig::Get().Uvm())
+      checkCudaErrors(cuMemcpyHtoDAsync((CUdeviceptr)dest,src,count,0));
+    else checkCudaErrors(cuMemcpyAsync((CUdeviceptr)dest,(CUdeviceptr)src,count,0));
+#endif
+    return dest;
+  }
+
+  // ***************************************************************************
+  void* rmemcpy::rDtoHAsync(void *dest, const void *src, std::size_t count){
+    dbg("<\033[m");
+    if (count==0) return dest;
+    assert(src); assert(dest);
+    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,count);
+#ifdef __NVCC__
+    if (!rconfig::Get().Uvm())
+      checkCudaErrors(cuMemcpyDtoHAsync(dest,(CUdeviceptr)src,count,0));
+    else checkCudaErrors(cuMemcpyAsync((CUdeviceptr)dest,(CUdeviceptr)src,count,0));
+#endif
+    return dest;
+  }
+  
+  // ***************************************************************************
+  void* rmemcpy::rDtoDAsync(void *dest, const void *src, std::size_t count){
+    dbg("<\033[m");
+    if (count==0) return dest;
+    assert(src); assert(dest);
+    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,count);
+#ifdef __NVCC__
+    if (!rconfig::Get().Uvm())
+      checkCudaErrors(cuMemcpyDtoDAsync((CUdeviceptr)dest,(CUdeviceptr)src,count,0));
+    else checkCudaErrors(cuMemcpyAsync((CUdeviceptr)dest,(CUdeviceptr)src,count,0));
+#endif
+    return dest;
+  }
+
 } // mfem

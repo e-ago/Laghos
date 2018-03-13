@@ -24,14 +24,25 @@ double* RajaVector::alloc(const size_t sz) {
   return (double*) rmalloc::operator new(sz);
 }
 
+double* RajaVector::AsyncAlloc(const size_t sz, bool locked_mem = false) {
+  dbg("\033[33m[v");
+  return (double*) rmalloc::operator new(sz, locked_mem);
+}
+
 // ***************************************************************************
-  void RajaVector::SetSize(const size_t sz, const void* ptr) {
+void RajaVector::SetSize(const size_t sz, const void* ptr) {
   own=true;
   size = sz;
   if (!data) data = alloc(sz); 
   if (ptr) rDtoD(data,ptr,bytes());
 }
 
+void RajaVector::AsyncSetSize(const size_t sz, const void* ptr) {
+  own=true;
+  size = sz;
+  if (!data) data = AsyncAlloc(sz, true); 
+  if (ptr) rDtoDAsync(data,ptr,bytes());
+}
 // ***************************************************************************
 RajaVector::RajaVector(const size_t sz):size(sz),data(alloc(sz)),own(true) {}
 RajaVector::RajaVector(const size_t sz,double value):
@@ -94,9 +105,16 @@ RajaVector* RajaVector::GetRange(const size_t offset,
 
 // ***************************************************************************
 RajaVector& RajaVector::operator=(const RajaVector& v) {
-  SetSize(v.Size(),v.data);
+  if(locked_mem == true)
+    AsyncSetSize(v.Size(),v.data);
+  else
+    SetSize(v.Size(),v.data);
   own = false;
   return *this;
+}
+
+void RajaVector::AsyncSetAlloc(bool _locked_mem) {
+  locked_mem = _locked_mem;
 }
 
 // ***************************************************************************

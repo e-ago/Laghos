@@ -56,6 +56,7 @@
 #include <iostream>
 #include <fstream>
 #include <sys/time.h>
+#include "gdacomm/gdacomm.hpp"
 
 using namespace std;
 using namespace mfem;
@@ -102,6 +103,7 @@ int main(int argc, char *argv[])
    bool occa = false;
    bool hcpo = false; // do Host Conforming Prolongation Operation
    bool sync = false;
+   int gdasync=0; 
 
    // **************************************************************************
 #if defined(__NVCC__) and not defined(__RAJA__)
@@ -174,6 +176,12 @@ int main(int argc, char *argv[])
                   "Enable or disable SHARE kernels (WIP, not usable).");
    args.AddOption(&dcg, "-dcg", "--dcg", "-no-dcg", "--no-dcg",
                   "Enable or disable CUDA CG (WIP, not usable).");
+
+   // GPUDirect Async Options *************************************************************
+   args.AddOption(&gdasync, "-gdasync", "--gdasync",
+                  "GPUDirect Async: 0 - Use MPI,\n\t"
+                  "            1 - Sync, 2 - Async SA, 3 - Async KI.");
+   
    args.Parse();
    if (!args.Good())
    {
@@ -185,7 +193,7 @@ int main(int argc, char *argv[])
    // CUDA set device & options
    // **************************************************************************
    rconfig::Get().Setup(mpi.WorldRank(),mpi.WorldSize(),
-                        cuda,dcg,uvm,aware,share,occa,hcpo,sync,dot,rs_levels);
+                        cuda,gdasync,dcg,uvm,aware,share,occa,hcpo,sync,dot,rs_levels);
    
    // Read the serial mesh from the given mesh file on all processors.
    // Refine the mesh in serial to increase the resolution.
@@ -298,6 +306,7 @@ int main(int argc, char *argv[])
        cout << "Unknown ODE solver type: " << ode_solver_type << '\n';
      }
      delete pmesh;
+     gdacomm::Get().Finalize();
      MPI_Finalize();
      pop();
      return 3;
@@ -592,6 +601,7 @@ int main(int argc, char *argv[])
    delete pmesh;
    delete material_pcf;
    pop();
+   gdacomm::Get().Finalize();
    return 0;
 }
 
