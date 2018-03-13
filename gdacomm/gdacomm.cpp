@@ -151,14 +151,14 @@ int gdacomm::iSend(
 
         if(gdasync == GDASYNC_SA)
         {
-            COMM_CHECK(comm_wait_ready_on_stream(dest_rank, hStream));
+            COMM_CHECK(comm_wait_ready_on_stream(dest_rank, (cudaStream_t)hStream));
             COMM_CHECK(comm_isend_on_stream(send_buf, 
                 size, 
                 mpi_type, 
                 &mem_regs[indexRegion],
                 dest_rank,
                 &send_reqs[creqSendCurr],
-                hStream) //ToDo: Assume default stream?
+                (cudaStream_t)hStream) //ToDo: Assume default stream?
             );
         }
 
@@ -211,7 +211,7 @@ int gdacomm::iRecv(
         if(gdasync == GDASYNC_SA)
             COMM_CHECK(comm_send_ready_on_stream(source_rank, 
                             &ready_reqs[creqReadyCurr],
-                            hStream));
+                            (cudaStream_t)hStream));
         else
             COMM_CHECK(comm_send_ready(source_rank, 
                                 &ready_reqs[creqReadyCurr]
@@ -295,7 +295,7 @@ int gdacomm::AsyncWaitAllRecv()
 
             COMM_CHECK(comm_wait_all_on_stream(numReqs, 
                                             recv_reqs+creqRecvStart, 
-                                            hStream));
+                                            (cudaStream_t)hStream));
             creqRecvStart = creqRecvCurr;
         }
     }
@@ -315,7 +315,7 @@ int gdacomm::AsyncWaitAllReady()
                 gdasync, creqReadyCurr, creqReadyStart, numReqs);
             COMM_CHECK(comm_wait_all_on_stream(numReqs, 
                                                 ready_reqs+creqReadyStart, 
-                                                hStream));
+                                                (cudaStream_t)hStream));
             creqReadyStart = creqReadyCurr;
         }
     }
@@ -335,7 +335,7 @@ int gdacomm::AsyncWaitAllSend()
                 gdasync, creqSendCurr, creqSendStart, numReqs);
             COMM_CHECK(comm_wait_all_on_stream(numReqs, 
                                                 send_reqs+creqSendStart, 
-                                                hStream));
+                                                (cudaStream_t)hStream));
             creqSendStart = creqSendCurr;        
         }
     }
