@@ -148,7 +148,7 @@ namespace mfem {
     cuStreamCreate(hStream, CU_STREAM_DEFAULT);
     
     // Init gdasync comm
-    gdacomm::Get().Init(mpi_rank, mpi_size, device, gdasync, hStream);
+    gdacomm::Get().Init(mpi_rank, mpi_size, device, gdasync, *hStream);
 
 #endif
     if (_dot){

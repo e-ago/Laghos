@@ -60,7 +60,7 @@ class gdacomm{
         int gpu_id=0;
         int gdasync=GDASYNC_NO;
         bool comm_initiated=false;
-        CUstream *hStream=NULL;
+        CUstream hStream=0;
         comm_memreg_map comm_regs;
         comm_request_t * ready_reqs;
         comm_request_t * recv_reqs;
@@ -89,7 +89,7 @@ class gdacomm{
             const int _mpi_size,
             const int _device,
             const int _gdasync,
-            CUstream *hStream);
+            CUstream hStream);
 
         void Finalize();
         int isAsync();

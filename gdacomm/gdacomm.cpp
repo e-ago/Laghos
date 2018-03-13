@@ -47,7 +47,7 @@ void gdacomm::Init(const int _mpi_rank,
     const int _mpi_size,
     const int _device,
     const int _gdasync,
-    CUstream *_hStream
+    CUstream _hStream
     )
 {
     mpi_rank = _mpi_rank;
