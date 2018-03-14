@@ -155,6 +155,9 @@ namespace mfem {
     // We MUST sync after to make sure every kernel has completed
     // or play with the -sync flag to enforce it with the push/pop
 #ifdef __NVCC__
+    if(gdacomm::Get().isAsync())
+      gdacomm::Get().FlushAll(true);
+
     cudaDeviceSynchronize();
 #endif
     gettimeofday(&et, NULL);

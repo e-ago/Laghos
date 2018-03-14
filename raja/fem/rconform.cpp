@@ -139,8 +139,10 @@ namespace mfem {
       }
       j = external_ldofs[m-1]+1;
     }
-
-    rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+    if(gdacomm::Get().isAsync())
+      rmemcpy::rDtoDAsync(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+    else
+      rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
 
 #endif
     pop();
@@ -222,7 +224,10 @@ namespace mfem {
       }
       j = external_ldofs[m-1]+1;
     }
-    rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+    if(gdacomm::Get().isAsync())
+        rmemcpy::rDtoDAsync(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+    else
+        rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
 #endif
     pop();
     push(d_ReduceEnd,Coral);
