@@ -124,7 +124,7 @@ namespace mfem {
       const int maxXThDim = rconfig::Get().MaxXThreadsDim();
       if (m>maxXThDim){
         const int kTpB=64;
-        printf("\n[k_Mult] m=%d kMaxTh=%d",m,kMaxTh);
+        //printf("\n[k_Mult] m=%d kMaxTh=%d",m,kMaxTh);
         k_Mult<<<(m+kTpB-1)/kTpB,kTpB>>>(d_ydata,d_xdata,d_external_ldofs,m);
         cuLastCheck();
       }else{      
