@@ -36,15 +36,18 @@ namespace mfem {
     external_ldofs.Sort();
 #ifdef __NVCC__
     const int HmW=Height()-Width();
-    if (HmW>0) d_external_ldofs=external_ldofs;
+    if (HmW>0)
+      d_external_ldofs=external_ldofs;
 #endif
     assert(external_ldofs.Size() == Height()-Width());
     const int m = external_ldofs.Size();
     for (int i = 1; i < m; i++){
       const int diff =(external_ldofs[i]-external_ldofs[i-1]);
-      if (diff>kMaxTh) kMaxTh=diff;
+      if (diff>kMaxTh){
+        kMaxTh=diff;
+        //printf(" %d",kMaxTh);
+      }
     }
-    //printf("\n[RajaConformingProlongationOperator] kMaxTh=%d",kMaxTh);
     //gc->PrintInfo(); 
     //pfes.Dof_TrueDof_Matrix()->PrintCommPkg();
   }
@@ -57,16 +60,35 @@ namespace mfem {
   }
 
   // ***************************************************************************
+  // * CUDA Error Status Check
+  // ***************************************************************************
+  void cuLastCheck(){
+    cudaError_t cudaStatus = cudaGetLastError();
+    if (cudaStatus != cudaSuccess) 
+      exit(fprintf(stderr, "\n\t\033[31;1m[cuLastCheck] failed: %s\033[m\n",
+                   cudaGetErrorString(cudaStatus)));
+  }
+
+  // ***************************************************************************
   // * k_Mult
   // ***************************************************************************
 #ifdef __NVCC__
   static __global__
-  void k_Mult2(double *y,const double *x,const int *external_ldofs,const int N){
-    const int i = blockIdx.x;
-    if (i>=N) return;
-    const int j=(i>0)?external_ldofs[i-1]+1:0;
+  void k_Mult(double *y,const double *x,const int *external_ldofs,const int m){
+    const int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i>=m) return;
+    const int j = (i>0)?external_ldofs[i-1]+1:0;
     const int end = external_ldofs[i];
-    const int k = threadIdx.x;
+    for(int k=0;k<(end-j);k+=1)
+      y[j+k]=x[j-i+k];
+  }
+  static __global__
+  void k_Mult2(double *y,const double *x,const int *external_ldofs,
+               const int m, const int base){
+    const int i = base+threadIdx.x;
+    const int j = (i>0)?external_ldofs[i-1]+1:0;
+    const int end = external_ldofs[i];
+    const int k = blockIdx.x;
     if (k>=(end-j)) return;
     y[j+k]=x[j-i+k];
   }
@@ -89,25 +111,37 @@ namespace mfem {
     int j = 0;
     double *d_ydata = y.GetData(); 
     const int m = external_ldofs.Size();
-#ifndef __NVCC__
+#ifdef __NVCC__
+    /*push(k_DtoD,Coral);
     for (int i = 0; i < m; i++){
       const int end = external_ldofs[i];
-      std::copy(d_xdata+j-i, d_xdata+end-i, d_ydata+j);
+      rmemcpy::rDtoD(d_ydata+j,d_xdata+j-i,(end-j)*sizeof(double));
       j = end+1;
     }
-#else
+    pop();
+    */
     if (m>0){
-      k_Mult2<<<m,kMaxTh>>>(d_ydata,d_xdata,d_external_ldofs,m);
+      const int maxXThDim = rconfig::Get().MaxXThreadsDim();
+      if (m>maxXThDim){
+        const int kTpB=64;
+        printf("\n[k_Mult] m=%d kMaxTh=%d",m,kMaxTh);
+        k_Mult<<<(m+kTpB-1)/kTpB,kTpB>>>(d_ydata,d_xdata,d_external_ldofs,m);
+        cuLastCheck();
+      }else{      
+        assert(kMaxTh<rconfig::Get().MaxXGridSize());
+        for(int of7=0;of7<m/maxXThDim;of7+=1){
+          const int base = of7*maxXThDim;
+          k_Mult2<<<kMaxTh,maxXThDim>>>(d_ydata,d_xdata,d_external_ldofs,m,base);
+          cuLastCheck();
+        }
+        k_Mult2<<<kMaxTh,m%maxXThDim>>>(d_ydata,d_xdata,d_external_ldofs,m,0);
+        cuLastCheck();
+      }
       j = external_ldofs[m-1]+1;
     }
-#endif
-#ifndef __NVCC__
-    std::copy(d_xdata+j-m, d_xdata+Width(), d_ydata+j);
-#else
-    if(gdacomm::Get().isAsync())
-        rmemcpy::rDtoDAsync(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
-    else
-        rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+
+    rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+
 #endif
     pop();
     
@@ -124,12 +158,22 @@ namespace mfem {
   // ***************************************************************************
 #ifdef __NVCC__
   static __global__
-  void k_MultTranspose2(double *y,const double *x,const int *external_ldofs,const int N){
-    const int i = blockIdx.x;
-    if (i>=N)return;
-    const int j=(i>0)?external_ldofs[i-1]+1:0;
+  void k_MultTranspose(double *y,const double *x,const int *external_ldofs,const int m){
+    const int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i>=m) return;
+    const int j = (i>0)?external_ldofs[i-1]+1:0;
     const int end = external_ldofs[i];
-    const int k = threadIdx.x;
+    for(int k=0;k<(end-j);k+=1)
+      y[j-i+k]=x[j+k];
+  }
+  
+  static __global__
+  void k_MultTranspose2(double *y,const double *x,const int *external_ldofs,
+                        const int m, const int base){
+    const int i = base+threadIdx.x;
+    const int j = (i>0)?external_ldofs[i-1]+1:0;
+    const int end = external_ldofs[i];
+    const int k = blockIdx.x;
     if (k>=(end-j)) return;
     y[j-i+k]=x[j+k];
   }
@@ -151,26 +195,34 @@ namespace mfem {
     int j = 0;
     double *d_ydata = y.GetData();
     const int m = external_ldofs.Size();
-#ifndef __NVCC__
-    for (int i = 0; i < m; i++){
+#ifdef __NVCC__
+    /*push(k_DtoDT,Coral);
+    for (int i = 0; i < m; i++)   {
       const int end = external_ldofs[i];
-      std::copy(d_xdata+j, d_xdata+end, d_ydata+j-i);
+      rmemcpy::rDtoD(d_ydata+j-i,d_xdata+j,(end-j)*sizeof(double));
       j = end+1;
     }
-#else
-    if (m>0){
-      k_MultTranspose2<<<m,kMaxTh>>>(d_ydata,d_xdata,d_external_ldofs,m);
+    pop();*/
+    if (m>0){      
+      const int maxXThDim = rconfig::Get().MaxXThreadsDim();
+      if (m>maxXThDim){
+        const int kTpB=64;
+        k_MultTranspose<<<(m+kTpB-1)/kTpB,kTpB>>>(d_ydata,d_xdata,d_external_ldofs,m);
+        cuLastCheck();
+      }else{
+        const int TpB = rconfig::Get().MaxXThreadsDim();
+        assert(kMaxTh<rconfig::Get().MaxXGridSize());
+        for(int of7=0;of7<m/maxXThDim;of7+=1){
+        const int base = of7*maxXThDim;
+        k_MultTranspose2<<<kMaxTh,maxXThDim>>>(d_ydata,d_xdata,d_external_ldofs,m,base);
+        cuLastCheck();
+      }
+      k_MultTranspose2<<<kMaxTh,m%maxXThDim>>>(d_ydata,d_xdata,d_external_ldofs,m,0);
+      cuLastCheck();
+      }
       j = external_ldofs[m-1]+1;
     }
-#endif
-#ifndef __NVCC__
-    std::copy(d_xdata+j, d_xdata+Height(), d_ydata+j-m);
-#else
-    if(gdacomm::Get().isAsync())
-        rmemcpy::rDtoDAsync(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
-    else
-        rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
-
+    rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
 #endif
     pop();
     push(d_ReduceEnd,Coral);
