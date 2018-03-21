@@ -158,7 +158,12 @@ namespace mfem {
     cuInit(Flags);
     
     // Returns properties for the selected device
-    const int device = Mps()?0:(mpi_rank%gpu_count);
+    //DGX Topology
+    int device=0;
+    char * value = getenv("USE_GPU"); 
+    if (value != NULL) device = atoi(value);
+    else device=Mps()?0:(mpi_rank%gpu_count);
+
     // Check if we have enough devices for all ranks
     assert(device<gpu_count);
     
