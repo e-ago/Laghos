@@ -31,11 +31,12 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <assert.h>
-#include <mpi-ext.h>
+#include <mpi.h>
 #include <unistd.h>
 #include <iostream>
 #include <algorithm>    // std::find
 #include <vector>       // std::vector
+#include <map>       // std::map
 
 #include "comm.hpp"
 
@@ -46,6 +47,7 @@
 
 #define MAX_CREQS 1024
 #define MAX_FLUSH_CREQS 192
+
 typedef std::map<uintptr_t, int>::iterator comm_memreg_it;
 typedef std::map<uintptr_t, int> comm_memreg_map;
 typedef std::vector<uintptr_t>vect_unistd;
